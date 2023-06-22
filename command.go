@@ -1,4 +1,4 @@
-package ssh
+package hqgossh
 
 import "io"
 
