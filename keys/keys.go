@@ -7,14 +7,13 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
 	"golang.org/x/crypto/ssh"
 )
 
-func Read(path string) (priv string, pub string, err error) {
+func Read(path string) (priv, pub string, err error) {
 	var (
 		stats           os.FileInfo
 		privBuf, pubBUf []byte
@@ -28,12 +27,12 @@ func Read(path string) (priv string, pub string, err error) {
 	}
 
 	if stats.IsDir() {
-		err = fmt.Errorf("failed reading private key: %s is a directory!", path)
+		err = fmt.Errorf("failed reading private key: %s is a directory", path)
 
 		return
 	}
 
-	privBuf, err = ioutil.ReadFile(path)
+	privBuf, err = os.ReadFile(path)
 	if err != nil {
 		err = fmt.Errorf("failed reading private key: %s", err)
 
@@ -42,7 +41,7 @@ func Read(path string) (priv string, pub string, err error) {
 
 	priv = string(privBuf)
 
-	pubBUf, err = ioutil.ReadFile(path + ".pub")
+	pubBUf, err = os.ReadFile(path + ".pub")
 	if err != nil {
 		err = fmt.Errorf("failed reading public key: %s", err)
 
@@ -54,7 +53,7 @@ func Read(path string) (priv string, pub string, err error) {
 	return
 }
 
-func Generate() (priv string, pub string, err error) {
+func Generate() (priv, pub string, err error) {
 	var (
 		privateKey *rsa.PrivateKey
 		publicKey  ssh.PublicKey
@@ -95,16 +94,14 @@ func Generate() (priv string, pub string, err error) {
 	return
 }
 
-func ReadOrGenerate(path string) (priv string, pub string, err error) {
+func ReadOrGenerate(path string) (priv, pub string, err error) {
 	pub, priv, err = Read(path)
-	if err != nil {
-		goto GENERATE
-	} else {
+	if err == nil {
 		return
 	}
 
-GENERATE:
 	pub, priv, err = Generate()
+
 	if err != nil {
 		err = fmt.Errorf("failed generating keys: %s", err)
 
@@ -135,11 +132,11 @@ func Write(path, pub, priv string) (err error) {
 		}
 	}
 
-	if err = ioutil.WriteFile(path, []byte(priv), 0600); err != nil {
+	if err = os.WriteFile(path, []byte(priv), 0600); err != nil {
 		return
 	}
 
-	if err = ioutil.WriteFile(path+".pub", []byte(pub), 0644); err != nil {
+	if err = os.WriteFile(path+".pub", []byte(pub), 0600); err != nil {
 		return
 	}
 

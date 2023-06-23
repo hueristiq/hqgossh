@@ -10,7 +10,7 @@ import (
 	"github.com/hueristiq/hqgossh/authentication"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 )
 
 // Client represents a client consisting of an SSH client and an SFTP session
@@ -20,7 +20,7 @@ type Client struct {
 }
 
 // Options represents options used in creating a Client
-type Options struct {
+type Options struct { //nolint:govet // To be refactored.
 	Host            string
 	Port            int
 	User            string
@@ -105,7 +105,14 @@ func (client *Client) Run(command *Command) (err error) {
 			return
 		}
 
-		go io.Copy(stdin, command.Stdin)
+		go func() {
+			_, err = io.Copy(stdin, command.Stdin)
+			if err != nil {
+				return
+			}
+
+			stdin.Close()
+		}()
 	}
 
 	if command.Stdout != nil {
@@ -114,7 +121,12 @@ func (client *Client) Run(command *Command) (err error) {
 			return
 		}
 
-		go io.Copy(command.Stdout, stdout)
+		go func() {
+			_, err = io.Copy(command.Stdout, stdout)
+			if err != nil {
+				return
+			}
+		}()
 	}
 
 	if command.Stderr != nil {
@@ -123,7 +135,12 @@ func (client *Client) Run(command *Command) (err error) {
 			return
 		}
 
-		go io.Copy(command.Stderr, stderr)
+		go func() {
+			_, err = io.Copy(command.Stderr, stderr)
+			if err != nil {
+				return
+			}
+		}()
 	}
 
 	for variable, value := range command.ENV {
@@ -132,9 +149,9 @@ func (client *Client) Run(command *Command) (err error) {
 		}
 	}
 
-	term := os.Getenv("TERM")
-	if term == "" {
-		term = "xterm-256color"
+	sTerm := os.Getenv("TERM")
+	if sTerm == "" {
+		sTerm = "xterm-256color"
 	}
 
 	termmodes := ssh.TerminalModes{
@@ -144,7 +161,7 @@ func (client *Client) Run(command *Command) (err error) {
 		ssh.OPOST:         1,     // Enable output processing.
 	}
 
-	if err = session.RequestPty(term, 40, 80, termmodes); err != nil {
+	if err = session.RequestPty(sTerm, 40, 80, termmodes); err != nil {
 		return
 	}
 
@@ -172,9 +189,9 @@ func (client *Client) Shell() (err error) {
 	session.Stdout = os.Stdout
 	session.Stderr = os.Stderr
 
-	term := os.Getenv("TERM")
-	if term == "" {
-		term = "xterm-256color"
+	sTerm := os.Getenv("TERM")
+	if sTerm == "" {
+		sTerm = "xterm-256color"
 	}
 
 	termmodes := ssh.TerminalModes{
@@ -186,19 +203,24 @@ func (client *Client) Shell() (err error) {
 
 	fd := int(os.Stdin.Fd())
 
-	state, err := terminal.MakeRaw(fd)
+	state, err := term.MakeRaw(fd)
 	if err != nil {
 		return
 	}
 
-	defer terminal.Restore(fd, state)
+	defer func() {
+		err = term.Restore(fd, state)
+		if err != nil {
+			return
+		}
+	}()
 
-	width, height, err := terminal.GetSize(fd)
+	width, height, err := term.GetSize(fd)
 	if err != nil {
 		return
 	}
 
-	if err = session.RequestPty(term, height, width, termmodes); err != nil {
+	if err = session.RequestPty(sTerm, height, width, termmodes); err != nil {
 		return
 	}
 
