@@ -147,4 +147,4 @@ if err := client.Download("/path/to/remote/file", "/path/to/local/file"); err !=
 
 ## Licensing
 
-This tool is distributed under the [MIT license](https://github.com/hueristiq/hqgossh/blob/master/LICENSE).
+This package is distributed under the [MIT license](https://github.com/hueristiq/hqgossh/blob/master/LICENSE).
