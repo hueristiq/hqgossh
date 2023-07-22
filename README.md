@@ -2,7 +2,7 @@
 
 [![license](https://img.shields.io/badge/license-MIT-gray.svg?color=0040FF)](https://github.com/hueristiq/hqgossh/blob/master/LICENSE) ![maintenance](https://img.shields.io/badge/maintained%3F-yes-0040ff.svg) [![open issues](https://img.shields.io/github/issues-raw/hueristiq/hqgossh.svg?style=flat&color=0040ff)](https://github.com/hueristiq/hqgossh/issues?q=is:issue+is:open) [![closed issues](https://img.shields.io/github/issues-closed-raw/hueristiq/hqgossh.svg?style=flat&color=0040ff)](https://github.com/hueristiq/hqgossh/issues?q=is:issue+is:closed) [![contribution](https://img.shields.io/badge/contributions-welcome-0040ff.svg)](https://github.com/hueristiq/hqgossh/blob/master/CONTRIBUTING.md)
 
-A [Go(Golang)](https://golang.org/) package to provide a simple abstraction around [ssh](https://pkg.go.dev/golang.org/x/crypto/ssh) and [sftp](https://pkg.go.dev/github.com/pkg/sftp) packages.
+A [Go(Golang)](https://golang.org/) package to provide a simple abstraction around [SSH](https://pkg.go.dev/golang.org/x/crypto/ssh) (Secure Shell) and [SFTP](https://pkg.go.dev/github.com/pkg/sftp) (SSH File Transfer Protocol) packages.
 
 ## Resources
 
@@ -20,12 +20,13 @@ A [Go(Golang)](https://golang.org/) package to provide a simple abstraction arou
 
 ## Features
 
-- [x] Authentication with password.
-- [x] Authentication with keys with passphrase.
-- [x] Authentication with keys without passphrase.
-- [x] Supports running remote commands.
-- [x] Supports getting an interactive shell.
-- [x] Supports files upload and download.
+- [x] Establishing SSH connections:
+	- [x] ... password.
+	- [x] ... key with passphrase.
+	- [x] ... key without passphrase.
+- [x] Running remote commands over SSH.
+- [x] Openning interactive shells over SSH.
+- [x] Transferring files over SFTP.
 
 ## Installation
 
