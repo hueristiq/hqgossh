@@ -13,83 +13,51 @@ import (
 	"golang.org/x/term"
 )
 
-// Client represents a client consisting of an SSH client and an SFTP session
+// Client wraps SSH and SFTP clients.
 type Client struct {
 	SSH  *ssh.Client
 	SFTP *sftp.Client
 }
 
-// Options represents options used in creating a Client
+// Options represents the options required to establish a SSH/SFTP connection.
 type Options struct { //nolint:govet // To be refactored.
 	Host            string
 	Port            int
 	User            string
 	Authentication  authentication.Authentication
-	Timeout         int
 	HostKeyCallback ssh.HostKeyCallback
 }
 
-const (
-	DefaultTimeout = 30
-)
-
-// New create Client
+// New creates a new Client with provided Options.
+// It establishes both SSH and SFTP clients.
 func New(options *Options) (client *Client, err error) {
-	client = &Client{
-		SSH:  &ssh.Client{},
-		SFTP: &sftp.Client{},
-	}
+	client = &Client{}
 
-	if options.Timeout <= 0 {
-		options.Timeout = DefaultTimeout
-	}
-
-	server := net.JoinHostPort(options.Host, fmt.Sprint(options.Port))
+	server := net.JoinHostPort(
+		options.Host,
+		fmt.Sprint(options.Port),
+	)
 	config := &ssh.ClientConfig{
 		User:            options.User,
 		Auth:            options.Authentication,
-		Timeout:         time.Duration(options.Timeout) * time.Second,
 		HostKeyCallback: options.HostKeyCallback,
 	}
 
-	retry, retryDelay, maxRetries := 1, 5, 10
-
-CREATE_CLIENT:
-	if client.SSH, err = ssh.Dial("tcp", server, config); err != nil {
-		if retry <= maxRetries {
-			time.Sleep(time.Duration(retryDelay) * time.Second)
-
-			retry++
-
-			goto CREATE_CLIENT
-		}
-
-		return
+	if err := establishSSHConnection(client, server, config); err != nil {
+		return nil, fmt.Errorf("failed establishing SSH connection: %s", err)
 	}
 
-	retry = 1
-
-	if client.SFTP, err = sftp.NewClient(client.SSH); err != nil {
-		if retry <= maxRetries {
-			time.Sleep(time.Duration(retryDelay) * time.Second)
-
-			retry++
-
-			goto CREATE_CLIENT
-		}
-
-		return
+	if err := createSFTPClient(client); err != nil {
+		return nil, fmt.Errorf("failed creating SFTP client: %s", err)
 	}
 
 	return
 }
 
-// Run runs cmd on the remote host.
+// Run runs remote commands over SSH.
 func (client *Client) Run(command *Command) (err error) {
 	var (
-		session        *ssh.Session
-		stdin          io.WriteCloser
-		stdout, stderr io.Reader
+		session *ssh.Session
 	)
 
 	session, err = client.SSH.NewSession()
@@ -99,69 +67,15 @@ func (client *Client) Run(command *Command) (err error) {
 
 	defer session.Close()
 
-	if command.Stdin != nil {
-		stdin, err = session.StdinPipe()
-		if err != nil {
-			return
-		}
-
-		go func() {
-			_, err = io.Copy(stdin, command.Stdin)
-			if err != nil {
-				return
-			}
-
-			stdin.Close()
-		}()
+	if err = handleIOStreams(session, command); err != nil {
+		return
 	}
 
-	if command.Stdout != nil {
-		stdout, err = session.StdoutPipe()
-		if err != nil {
-			return
-		}
-
-		go func() {
-			_, err = io.Copy(command.Stdout, stdout)
-			if err != nil {
-				return
-			}
-		}()
+	if err = setEnvVariables(session, command.ENV); err != nil {
+		return
 	}
 
-	if command.Stderr != nil {
-		stderr, err = session.StderrPipe()
-		if err != nil {
-			return
-		}
-
-		go func() {
-			_, err = io.Copy(command.Stderr, stderr)
-			if err != nil {
-				return
-			}
-		}()
-	}
-
-	for variable, value := range command.ENV {
-		if err = session.Setenv(variable, value); err != nil {
-			return
-		}
-	}
-
-	sTerm := os.Getenv("TERM")
-	if sTerm == "" {
-		sTerm = "xterm-256color"
-	}
-
-	termmodes := ssh.TerminalModes{
-		ssh.ECHO:          0,     // disable echoing
-		ssh.TTY_OP_ISPEED: 14400, // input speed = 14.4kbaud
-		ssh.TTY_OP_OSPEED: 14400, // output speed = 14.4kbaud
-		ssh.OPOST:         1,     // Enable output processing.
-	}
-
-	if err = session.RequestPty(sTerm, 40, 80, termmodes); err != nil {
+	if err = setPty(session); err != nil {
 		return
 	}
 
@@ -172,7 +86,7 @@ func (client *Client) Run(command *Command) (err error) {
 	return
 }
 
-// Shell starts a login shell on the remote host.
+// Shell opens an interactive shell over SSH.
 func (client *Client) Shell() (err error) {
 	var (
 		session *ssh.Session
@@ -185,9 +99,7 @@ func (client *Client) Shell() (err error) {
 
 	defer session.Close()
 
-	session.Stdin = os.Stdin
-	session.Stdout = os.Stdout
-	session.Stderr = os.Stderr
+	session.Stdin, session.Stdout, session.Stderr = os.Stdin, os.Stdout, os.Stderr
 
 	sTerm := os.Getenv("TERM")
 	if sTerm == "" {
@@ -235,22 +147,150 @@ func (client *Client) Shell() (err error) {
 	return
 }
 
-// Close closes  SFTP session and the underlying network connection
+// Close closes the SFTP and SSH clients.
 func (client *Client) Close() (err error) {
 	if client == nil {
+		err = fmt.Errorf("failed closing: client is nil")
+
 		return
 	}
 
 	if client.SFTP != nil {
 		if err = client.SFTP.Close(); err != nil {
+			err = fmt.Errorf("failed closing SFTP client: %s", err)
+
 			return
 		}
 	}
 
 	if client.SSH != nil {
 		if err = client.SSH.Close(); err != nil {
+			err = fmt.Errorf("failed closing SSH connection: %s", err)
+
 			return
 		}
+	}
+
+	return
+}
+
+// establishSSHConnection establishes a SSH connection.
+func establishSSHConnection(client *Client, server string, config *ssh.ClientConfig) (err error) {
+	maxRetries := 3
+	retryDelay := 10 * time.Second
+
+	for retry := 0; retry < maxRetries; retry++ {
+		client.SSH, err = ssh.Dial("tcp", server, config)
+		if err == nil {
+			return
+		}
+
+		time.Sleep(retryDelay)
+	}
+
+	return
+}
+
+// createSFTPClient creates a SFTP client.
+func createSFTPClient(client *Client) (err error) {
+	maxRetries := 3
+	retryDelay := 10 * time.Second
+
+	for retry := 0; retry < maxRetries; retry++ {
+		client.SFTP, err = sftp.NewClient(client.SSH)
+		if err == nil {
+			return
+		}
+
+		time.Sleep(retryDelay)
+	}
+
+	return
+}
+
+// handleIOStreams handles I/O streams for the command.
+func handleIOStreams(session *ssh.Session, command *Command) (err error) {
+	var (
+		stdin          io.WriteCloser
+		stdout, stderr io.Reader
+	)
+
+	if command.Stdin != nil {
+		stdin, err = session.StdinPipe()
+		if err != nil {
+			return
+		}
+
+		go func() {
+			_, err = io.Copy(stdin, command.Stdin)
+			if err != nil {
+				return
+			}
+
+			if err = stdin.Close(); err != nil {
+				return
+			}
+		}()
+	}
+
+	if command.Stdout != nil {
+		stdout, err = session.StdoutPipe()
+		if err != nil {
+			return
+		}
+
+		go func() {
+			_, err = io.Copy(command.Stdout, stdout)
+			if err != nil {
+				return
+			}
+		}()
+	}
+
+	if command.Stderr != nil {
+		stderr, err = session.StderrPipe()
+		if err != nil {
+			return
+		}
+
+		go func() {
+			_, err = io.Copy(command.Stderr, stderr)
+			if err != nil {
+				return
+			}
+		}()
+	}
+
+	return
+}
+
+// setEnvVariables sets environment variables for the session.
+func setEnvVariables(session *ssh.Session, env map[string]string) (err error) {
+	for variable, value := range env {
+		if err = session.Setenv(variable, value); err != nil {
+			return
+		}
+	}
+
+	return
+}
+
+// setPty sets up a pseudo-terminal for the session.
+func setPty(session *ssh.Session) (err error) {
+	sTerm := os.Getenv("TERM")
+	if sTerm == "" {
+		sTerm = "xterm-256color"
+	}
+
+	termmodes := ssh.TerminalModes{
+		ssh.ECHO:          0,     // disable echoing
+		ssh.TTY_OP_ISPEED: 14400, // input speed = 14.4kbaud
+		ssh.TTY_OP_OSPEED: 14400, // output speed = 14.4kbaud
+		ssh.OPOST:         1,     // Enable output processing.
+	}
+
+	if err = session.RequestPty(sTerm, 40, 80, termmodes); err != nil {
+		return
 	}
 
 	return
