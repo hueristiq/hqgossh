@@ -143,7 +143,7 @@ if err := client.Download("/path/to/remote/file", "/path/to/local/file"); err !=
 
 ## Contributing
 
-[Issues](https://github.com/hueristiq/hqgossh/issues) and [Pull Requests](https://github.com/hueristiq/hqgossh/pulls) are welcome! **Check out the [contribution guidelines](./CONTRIBUTING.md)**.
+[Issues](https://github.com/hueristiq/hqgossh/issues) and [Pull Requests](https://github.com/hueristiq/hqgossh/pulls) are welcome! **Check out the [contribution guidelines](https://github.com/hueristiq/hqgossh/blob/master/CONTRIBUTING.md)**.
 
 ## Licensing
 
